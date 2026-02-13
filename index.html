@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>سودوكو برو - نسخة المساعدات</title>
+    <style>
+        :root {
+            --primary: #4f46e5;
+            --secondary: #1e293b;
+            --bg: #f8fafc;
+            --error: #ef4444;
+            --success: #22c55e;
+        }
+
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background: var(--bg); display: flex; flex-direction: column; align-items: center; padding: 10px; }
+
+        .header-info { display: flex; gap: 20px; margin-bottom: 15px; font-size: 1.2rem; font-weight: bold; background: white; padding: 10px 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+
+        .grid { display: grid; grid-template-columns: repeat(9, 1fr); border: 3px solid var(--secondary); max-width: 400px; width: 95vw; background: var(--secondary); gap: 1px; }
+
+        .cell { aspect-ratio: 1; background: white; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; font-weight: bold; cursor: pointer; transition: 0.2s; }
+
+        /* تقسيمات الـ 3x3 */
+        .cell:nth-child(3n) { border-left: 2px solid var(--secondary); }
+        .cell:nth-child(n+19):nth-child(-n+27), .cell:nth-child(n+46):nth-child(-n+54) { border-bottom: 2px solid var(--secondary); }
+
+        .cell.selected { background: #e0e7ff; color: var(--primary); outline: 2px solid var(--primary); z-index: 1; }
+        .cell.fixed { background: #f1f5f9; color: #334155; }
+        .cell.error { color: var(--error); animation: shake 0.2s; }
+        .cell.hinted { color: var(--primary); font-style: italic; }
+
+        @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-2px); } 75% { transform: translateX(2px); } }
+
+        .num-pad { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 15px; width: 100%; max-width: 400px; }
+        .btn-num { padding: 12px; background: white; border: 1px solid #ddd; border-radius: 8px; text-align: center; font-weight: bold; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .btn-num:active { transform: scale(0.95); background: var(--primary); color: white; }
+
+        .actions { margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+        .btn-action { padding: 10px 15px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; color: white; transition: 0.3s; }
+        .new-game { background: var(--primary); }
+        .hint-game { background: #f59e0b; }
+        .check-game { background: var(--success); }
+    </style>
+</head>
+<body>
+
+    <div class="header-info">
+        <div>⏳ <span id="timer">00:00</span></div>
+        <div>💡 مساعدات: <span id="hintsCount">3</span></div>
+    </div>
+
+    <div class="grid" id="grid"></div>
+
+    <div class="num-pad" id="numPad"></div>
+
+    <div class="actions">
+        <button class="btn-action new-game" onclick="game.newGame()">لعبة جديدة</button>
+        <button class="btn-action hint-game" onclick="game.giveHint()">مساعدة ✨</button>
+        <button class="btn-action check-game" onclick="game.checkWin()">تحقق ✅</button>
+    </div>
+
+<script>
+class SudokuPro {
+    constructor() {
+        this.board = [];
+        this.solution = [];
+        this.selectedIdx = null;
+        this.hintsRemaining = 3;
+        this.timer = 0;
+        this.timerInterval = null;
+
+        this.init();
+    }
+
+    init() {
+        this.createNumPad();
+        this.newGame();
+        window.addEventListener('keydown', (e) => {
+            if (e.key >= 1 && e.key <= 9) this.fillNumber(parseInt(e.key));
+            if (e.key === 'Backspace') this.fillNumber(0);
+        });
+    }
+
+    createNumPad() {
+        const pad = document.getElementById('numPad');
+        for (let i = 1; i <= 9; i++) {
+            const btn = document.createElement('div');
+            btn.className = 'btn-num';
+            btn.innerText = i;
+            btn.onclick = () => this.fillNumber(i);
+            pad.appendChild(btn);
+        }
+        const del = document.createElement('div');
+        del.className = 'btn-num';
+        del.innerText = '✖';
+        del.onclick = () => this.fillNumber(0);
+        pad.appendChild(del);
+    }
+
+    newGame() {
+        this.generateBoard();
+        this.hintsRemaining = 3;
+        document.getElementById('hintsCount').innerText = this.hintsRemaining;
+        this.resetTimer();
+        this.render();
+    }
+
+    generateBoard() {
+        // خوارزمية توليد اللوحة
+        this.solution = this.generateFullGrid();
+        this.board = [...this.solution];
+        // إزالة 45 خلية لجعلها متوسطة الصعوبة
+        for(let i=0; i<45; i++) {
+            let idx = Math.floor(Math.random() * 81);
+            while(this.board[idx] === 0) idx = Math.floor(Math.random() * 81);
+            this.board[idx] = 0;
+        }
+    }
+
+    generateFullGrid() {
+        let grid = Array(81).fill(0);
+        this.solve(grid);
+        return grid;
+    }
+
+    solve(grid) {
+        for (let i = 0; i < 81; i++) {
+            if (grid[i] === 0) {
+                let nums = [1,2,3,4,5,6,7,8,9].sort(() => Math.random() - 0.5);
+                for (let n of nums) {
+                    if (this.isValid(grid, i, n)) {
+                        grid[i] = n;
+                        if (this.solve(grid)) return true;
+                        grid[i] = 0;
+                    }
+                }
+                return false;
+            }
+        }
+        return true;
+    }
+
+    isValid(grid, idx, num) {
+        let r = Math.floor(idx / 9), c = idx % 9;
+        for (let i = 0; i < 9; i++) {
+            if (grid[r * 9 + i] === num || grid[i * 9 + c] === num) return false;
+        }
+        let br = Math.floor(r / 3) * 3, bc = Math.floor(c / 3) * 3;
+        for (let i = 0; i < 3; i++) {
+            for (let j = 0; j < 3; j++) {
+                if (grid[(br + i) * 9 + (bc + j)] === num) return false;
+            }
+        }
+        return true;
+    }
+
+    render() {
+        const gridDiv = document.getElementById('grid');
+        gridDiv.innerHTML = '';
+        this.board.forEach((val, i) => {
+            const cell = document.createElement('div');
+            cell.className = 'cell' + (val !== 0 ? ' fixed' : '');
+            cell.innerText = val !== 0 ? val : '';
+            cell.onclick = () => this.select(i, cell);
+            gridDiv.appendChild(cell);
+        });
+    }
+
+    select(idx, el) {
+        document.querySelectorAll('.cell').forEach(c => c.classList.remove('selected'));
+        if (el.classList.contains('fixed')) {
+            this.selectedIdx = null;
+            return;
+        }
+        this.selectedIdx = idx;
+        el.classList.add('selected');
+    }
+
+    fillNumber(num) {
+        if (this.selectedIdx === null) return;
+        const cells = document.querySelectorAll('.cell');
+        const cell = cells[this.selectedIdx];
+        
+        this.board[this.selectedIdx] = num;
+        cell.innerText = num === 0 ? '' : num;
+        
+        // فحص سريع للخطأ
+        if (num !== 0 && num !== this.solution[this.selectedIdx]) {
+            cell.classList.add('error');
+        } else {
+            cell.classList.remove('error');
+        }
+    }
+
+    giveHint() {
+        if (this.hintsRemaining <= 0 || this.selectedIdx === null) return;
+        if (this.board[this.selectedIdx] !== 0) return;
+
+        const correctVal = this.solution[this.selectedIdx];
+        this.fillNumber(correctVal);
+        document.querySelectorAll('.cell')[this.selectedIdx].classList.add('hinted');
+        
+        this.hintsRemaining--;
+        document.getElementById('hintsCount').innerText = this.hintsRemaining;
+    }
+
+    checkWin() {
+        const isComplete = this.board.every((v, i) => v === this.solution[i]);
+        if (isComplete) {
+            alert(`مبروك! قمت بحل السودوكو في ${document.getElementById('timer').innerText}`);
+            this.newGame();
+        } else {
+            alert("ما زال هناك أخطاء أو خلايا فارغة!");
+        }
+    }
+
+    // إدارة المؤقت
+    resetTimer() {
+        clearInterval(this.timerInterval);
+        this.timer = 0;
+        this.timerInterval = setInterval(() => {
+            this.timer++;
+            let m = Math.floor(this.timer / 60).toString().padStart(2, '0');
+            let s = (this.timer % 60).toString().padStart(2, '0');
+            document.getElementById('timer').innerText = `${m}:${s}`;
+        }, 1000);
+    }
+}
+
+const game = new SudokuPro();
+</script>
+</body>
+</html>
